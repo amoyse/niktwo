@@ -40,7 +40,7 @@ async fn main() {
 
     println!("{:?}", response);
 
-   find_forms(&response).await; 
+   find_forms(&response); 
 
    sqli_scan().await;
 
@@ -54,10 +54,15 @@ async fn make_request(url: &str) -> Result<String, reqwest::Error> {
     Ok(body)
 }
 
-async fn find_forms(html_content: &str) {
+fn find_forms(html_content: &str) {
     let document = Html::parse_document(html_content);
     let selector = Selector::parse("form").unwrap();
     for element in document.select(&selector) {
-        println!("Found form: {:?}", element.value());
+        if let Some(action) = element.value().attrs().find(|(attr, _)| attr == &"action") {
+            println!("Found form action: {}", action.1);
+        } 
+        if let Some(method) = element.value().attrs().find(|(attr, _)| attr == &"method") {
+            println!("Found form method: {}", method.1);
+        }
     }
 }
