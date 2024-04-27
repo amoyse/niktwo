@@ -56,13 +56,22 @@ async fn make_request(url: &str) -> Result<String, reqwest::Error> {
 
 fn find_forms(html_content: &str) {
     let document = Html::parse_document(html_content);
-    let selector = Selector::parse("form").unwrap();
-    for element in document.select(&selector) {
-        if let Some(action) = element.value().attrs().find(|(attr, _)| attr == &"action") {
+    let form_selector = Selector::parse("form").unwrap();
+    let input_selector = Selector::parse("input").unwrap();
+    // find each form on a page
+    for form in document.select(&form_selector) {
+        if let Some(action) = form.value().attrs().find(|(attr, _)| attr == &"action") {
             println!("Found form action: {}", action.1);
         } 
-        if let Some(method) = element.value().attrs().find(|(attr, _)| attr == &"method") {
+        if let Some(method) = form.value().attrs().find(|(attr, _)| attr == &"method") {
             println!("Found form method: {}", method.1);
+        }
+        
+        // find all input tags in each form
+        for input in form.select(&input_selector) {
+            let name = input.value().attr("name").unwrap_or("no name");
+            let input_type = input.value().attr("type").unwrap_or("no type");
+            println!("Found input: type={} name={}", input_type, name);
         }
     }
 }
