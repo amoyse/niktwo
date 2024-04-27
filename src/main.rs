@@ -26,8 +26,8 @@ struct InputDetails {
 
 #[derive(Debug)]
 struct FormDetails {
-    action: Option<String>,
-    method: Option<String>,
+    action: String,
+    method: String,
     inputs: Vec<InputDetails>
 }
 
@@ -77,19 +77,17 @@ fn find_forms(html_content: &str) -> Vec<FormDetails> {
     // find each form on a page
     for form in document.select(&form_selector) {
         let mut form_info = FormDetails {
-            action: None,
-            method: None,
+            action: String::new(),
+            method: String::new(),
             inputs: Vec::new(),
         };
 
-        if let Some(action) = form.value().attr("action") {
-            form_info.action = Some(action.to_string());
-            println!("Found form action: {}", action);
-        } 
-        if let Some(method) = form.value().attr("method") {
-            form_info.method = Some(method.to_string());
-            println!("Found form method: {}", method);
-        } 
+        let action = form.value().attr("action").unwrap_or("no action").to_string();
+        let method = form.value().attr("method").unwrap_or("no method").to_string();
+        println!("Found form action: {}", action);
+        println!("Found form method: {}", method);
+        form_info.action = action;
+        form_info.method = method;
         
         // find all input tags in each form
         for input in form.select(&input_selector) {
@@ -97,7 +95,7 @@ fn find_forms(html_content: &str) -> Vec<FormDetails> {
             let input_type = input.value().attr("type").unwrap_or("no type").to_string();
             println!("Found input: type={} name={}", input_type, name);
 
-            // Add the found input details to the form_info.inputs vector
+            // add the found input details to the form_info.inputs vector
             form_info.inputs.push(InputDetails {
                 input_type,
                 name,
