@@ -5,6 +5,7 @@ use std::future::IntoFuture;
 use clap::Parser;
 use reqwest::Error;
 use scraper::{Html, Selector};
+use std::collections::HashMap;
 
 
 // may need to reference the clap docs for this
@@ -22,6 +23,7 @@ struct Args {
 struct InputDetails {
     input_type: String,
     name: String,
+    value: String
 }
 
 #[derive(Debug)]
@@ -32,19 +34,43 @@ struct FormDetails {
 }
 
 
-async fn sqli_scan() {
+async fn sqli_scan(forms: &Vec<FormDetails>, url: &str) {
+    println!("[+] Detected {} forms on {}.", forms.len(), url);
 
+    let chars = vec!['"', '\''];
+
+    let mut data = HashMap::new();
+
+    for form in forms {
+        for c in &chars {
+            for input_tag in &form.inputs {
+
+                // any input that is hidden or has value, use in form body with special char
+                if input_tag.input_type == "hidden" || input_tag.value != "no value" {
+                    let new_value = format!("{}{}", input_tag.value, c);
+                    data.insert(input_tag.name.to_string(), new_value);
+
+                // any other input, use random data and special char
+                } else if input_tag.input_type != "submit" {
+                    let new_value = format!("test{}", c);
+                    data.insert(input_tag.name.to_string(), new_value);
+                }
+            }
+        }
+    }
+    println!("{:?}", data);
 }
 
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    let target_url = args.target;
 
     // This prints out the url entered
-    println!("URL to target: {:?}", args.target);
+    println!("URL to target: {:?}", target_url);
 
-    let request_result = make_request(&args.target).await;
+    let request_result = make_request(&target_url).await;
 
     let response = match request_result {
         Ok(response) => response,
@@ -53,9 +79,10 @@ async fn main() {
 
     println!("{:?}", response);
 
-   println!("{:?}", find_forms(&response));
+    let forms = find_forms(&response);
+    println!("{:?}", forms);
 
-   sqli_scan().await;
+    sqli_scan(&forms, &target_url).await;
 
 
 }
@@ -93,12 +120,14 @@ fn find_forms(html_content: &str) -> Vec<FormDetails> {
         for input in form.select(&input_selector) {
             let name = input.value().attr("name").unwrap_or("no name").to_string();
             let input_type = input.value().attr("type").unwrap_or("no type").to_string();
-            println!("Found input: type={} name={}", input_type, name);
+            let value = input.value().attr("value").unwrap_or("no value").to_string();
+            println!("Found input: type={} name={} value={}", input_type, name, value);
 
             // add the found input details to the form_info.inputs vector
             form_info.inputs.push(InputDetails {
                 input_type,
                 name,
+                value,
             });
         }
         all_form_details.push(form_info);
