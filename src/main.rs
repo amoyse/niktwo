@@ -1,11 +1,13 @@
 #![allow(unused)]
 
+use core::panic;
 use std::future::IntoFuture;
 
 use clap::Parser;
-use reqwest::Error;
+use reqwest::{Client, Error};
 use scraper::{Html, Selector};
 use std::collections::HashMap;
+use url::Url;
 
 
 // may need to reference the clap docs for this
@@ -34,7 +36,7 @@ struct FormDetails {
 }
 
 
-async fn sqli_scan(forms: &Vec<FormDetails>, url: &str) {
+async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn std::error::Error>> {
     println!("[+] Detected {} forms on {}.", forms.len(), url);
 
     let chars = vec!['"', '\''];
@@ -56,9 +58,22 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str) {
                     data.insert(input_tag.name.to_string(), new_value);
                 }
             }
+            let new_url = Url::parse(url).unwrap();
+            let action_url = new_url.join(&form.action).unwrap();
+            
+            let client = Client::new();
+
+            // .as_str() is needed to convert form.method from String to &str for matching with
+            // "post" and get
+            let response = match form.method.as_str() {
+                "post" => client.post(action_url).form(&data).send().await?,
+                "get" => client.get(action_url).query(&data).send().await?,
+                _ => panic!("Unsupported form method.")
+            };
         }
     }
     println!("{:?}", data);
+    Ok(())
 }
 
 
