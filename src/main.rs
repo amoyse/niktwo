@@ -35,10 +35,27 @@ struct FormDetails {
     inputs: Vec<InputDetails>
 }
 
+fn is_sqli_vulnerable(response: String) -> bool {
+    let errors = vec![
+        "you have an error in your sql syntax;", 
+        "warning: mysql", 
+        "unclosed quotation mark after the character string", 
+        "quoted string not properly terminated"
+    ];
+
+    for error in errors {
+        if response.contains(error) {
+            return true;
+        }
+    }
+    false
+}
 
 async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn std::error::Error>> {
     println!("[+] Detected {} forms on {}.", forms.len(), url);
 
+    // may need to add in more test payloads
+    // also maybe call this variable test_payloads
     let chars = vec!['"', '\''];
 
     let mut data = HashMap::new();
@@ -70,9 +87,13 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
                 "get" => client.get(action_url).query(&data).send().await?,
                 _ => panic!("Unsupported form method.")
             };
+            println!("{:?}", response);
+            if is_sqli_vulnerable(response.text().await?.to_lowercase()) {
+                println!("[+] SQL Injection vulnerability detected, link: {}", url);
+                println!("[+] Form: {:?}", form);
+            }
         }
     }
-    println!("{:?}", data);
     Ok(())
 }
 
