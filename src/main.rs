@@ -58,10 +58,10 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
     // also maybe call this variable test_payloads
     let chars = vec!['"', '\''];
 
-    let mut data = HashMap::new();
 
     for form in forms {
         for c in &chars {
+            let mut data = HashMap::new();
             for input_tag in &form.inputs {
 
                 // any input that is hidden or has value, use in form body with special char
@@ -81,8 +81,8 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
             let client = Client::new();
 
             // .as_str() is needed to convert form.method from String to &str for matching with
-            // "post" and get
-            let response = match form.method.as_str() {
+            // "post" and "get"
+            let response = match form.method.to_lowercase().as_str() {
                 "post" => client.post(action_url).form(&data).send().await?,
                 "get" => client.get(action_url).query(&data).send().await?,
                 _ => panic!("Unsupported form method.")
@@ -94,6 +94,40 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
             }
         }
     }
+    Ok(())
+}
+
+async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let js_script = String::from("<Script>alert('hi')</scripT>");
+
+    for form in forms {
+        let new_url = Url::parse(url).unwrap();
+        let action_url = new_url.join(&form.action).unwrap();
+        let client = Client::new();
+        let mut data = HashMap::new();
+        
+        for input in &form.inputs {
+            let mut input_value = String::new(); 
+            if input.input_type == "text" || input.input_type == "search" {
+                input_value = js_script.clone();
+            }
+            else {
+                input_value = input.value.clone();
+            }
+            if input.name != "no name" && input.value != "no value" {
+                data.insert(input.name.to_string(), input_value);
+            }
+        }
+        let response = match form.method.to_lowercase().as_str() {
+            "post" => client.post(action_url).form(&data).send().await?,
+            "get" => client.get(action_url).query(&data).send().await?,
+            _ => panic!("Unsupported form method.")
+        };
+        println!("{:?}", response);
+
+
+    }
+
     Ok(())
 }
 
@@ -118,7 +152,8 @@ async fn main() {
     let forms = find_forms(&response);
     println!("{:?}", forms);
 
-    sqli_scan(&forms, &target_url).await;
+    // sqli_scan(&forms, &target_url).await;
+    xss_scan(&forms, &target_url).await;
 
 
 }
