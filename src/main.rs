@@ -98,7 +98,7 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
 }
 
 async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let js_script = String::from("<Script>alert('hi')</scripT>");
+    let js_script = String::from("<script>alert('hi')</script>");
 
     for form in forms {
         let new_url = Url::parse(url).unwrap();
@@ -123,7 +123,7 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std
             "get" => client.get(action_url).query(&data).send().await?,
             _ => panic!("Unsupported form method.")
         };
-        println!("{:?}", response);
+        println!("{:?}", response.text().await?.to_lowercase());
 
 
     }
