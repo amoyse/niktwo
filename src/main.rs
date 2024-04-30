@@ -59,6 +59,7 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
     // also maybe call this variable test_payloads
     let chars = vec!['"', '\''];
 
+    let mut is_vulnerable = false;
 
     for form in forms {
         for c in &chars {
@@ -89,17 +90,23 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
                 _ => panic!("Unsupported form method.")
             };
             if is_sqli_vulnerable(response.text().await?.to_lowercase()) {
+                is_vulnerable = true;
                 println!("[+] SQL Injection vulnerability detected, link: {}", url);
                 println!("[+] Form: {:?}", form);
             }
         }
     }
+    if !is_vulnerable {
+        println!("[+] No SQL injection vulnerabilities detected.");
+    }
+
     Ok(())
 }
 
 async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     let js_script = String::from("<script>alert('hi')</script>");
+    let mut is_vulnerable = false;
 
     let xss_test_payloads = vec![
         "<script>alert('XSS')</script>",
@@ -143,6 +150,7 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std
             // println!("Response:");
             // println!("{:?}", response_content);
             if response_content.contains(&payload.to_lowercase()) {
+                is_vulnerable = true;
                 println!("\n[+] XSS Detected on {}, using payload: {}", url, payload);
                 println!("[*] Form details:");
                 println!("{:?}", form);
@@ -150,6 +158,9 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std
                 break;
             }
         }
+    }
+    if !is_vulnerable {
+        println!("[+] No XSS vulnerabilities detected.");
     }
     Ok(())
 }
@@ -160,22 +171,19 @@ fn convert(headers: &HeaderMap<HeaderValue>) -> serde_json::Value {
 
 async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let headers_to_check = vec![
-        "content-security-policy",
-        "x-frame-options",
-        "strict-transport-security",
-        "x-content-type-options"
+        "Content-Security-Policy",
+        "X-Frame-Options",
+        "Strict-Transport-Security",
+        "X-Content-Type-Options"
     ];
     let response = reqwest::get(url).await?;
     let headers = response.headers();
     let headers_json = convert(headers);
-    if !headers_json.to_string().to_lowercase().contains("content-security-policy") {
-        println!("Content-Security-Policy header is missing.")
-    }
-    if !headers_json.to_string().to_lowercase().contains("x-frame-options") {
-        println!("X-Frame-Options header is missing.")
-    }
-    if !headers_json.to_string().to_lowercase().contains("strict-transport-security") {
-        println!("Strict-Transport-Security header is missing.")
+
+    for header in headers_to_check {
+        if !headers_json.to_string().to_lowercase().contains(&header.to_lowercase()) {
+            println!("{} header is missing.", header);
+        }
     }
     Ok(())
 }
@@ -207,7 +215,9 @@ async fn main() {
     let forms = find_forms(&response);
     println!("[+] Detected {} forms on {}.", &forms.len(), &target_url);
 
+    println!();
     sqli_scan(&forms, &target_url).await;
+    println!();
     xss_scan(&forms, &target_url).await;
 
 
