@@ -18,9 +18,6 @@ use serde_json;
 struct Args {
     #[arg(short, long)]
     target: String,
-
-    #[arg(long, action)]
-    ssl: bool,
 }
 
 #[derive(Debug)]
@@ -180,9 +177,22 @@ async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Erro
     let headers = response.headers();
     let headers_json = convert(headers);
 
+    // retrieve the value for the server header, if it exists
+    if let Some(server_value) = headers.get("Server") {
+
+        // convert headervalue to a string if needed
+        if let Ok(value_str) = server_value.to_str() {
+            println!("[+] Server: {}", value_str);
+        } else {
+            println!("[+] Server header found, but contains invalid UTF-8");
+        }
+    } else {
+        println!("[+] Server header not found");
+    }
+
     for header in headers_to_check {
         if !headers_json.to_string().to_lowercase().contains(&header.to_lowercase()) {
-            println!("{} header is missing.", header);
+            println!("[+] {} header is missing.", header);
         }
     }
     Ok(())
