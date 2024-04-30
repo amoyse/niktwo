@@ -50,7 +50,7 @@ fn is_sqli_vulnerable(response: String) -> bool {
     false
 }
 
-async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn std::error::Error>> {
+async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client)  -> Result<(), Box<dyn std::error::Error>> {
 
     // may need to add in more test payloads
     // also maybe call this variable test_payloads
@@ -77,8 +77,6 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
             let new_url = Url::parse(url).unwrap();
             let action_url = new_url.join(&form.action).unwrap();
             
-            let client = Client::new();
-
             // .as_str() is needed to convert form.method from String to &str for matching with
             // "post" and "get"
             let response = match form.method.to_lowercase().as_str() {
@@ -100,7 +98,7 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
     Ok(())
 }
 
-async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client) -> Result<(), Box<dyn std::error::Error>> {
 
     let js_script = String::from("<script>alert('hi')</script>");
     let mut is_vulnerable = false;
@@ -119,9 +117,8 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std
     for form in forms {
         for payload in &xss_test_payloads {
 
-            let new_url = Url::parse(url).unwrap();
-            let action_url = new_url.join(&form.action).unwrap();
-            let client = Client::new();
+            let new_url = Url::parse(url)?;
+            let action_url = new_url.join(&form.action)?;
             let mut data = HashMap::new();
 
             for input in &form.inputs {
@@ -217,6 +214,7 @@ async fn main() {
 
     // println!("{:?}", response);
 
+    let client = Client::new();
 
     println!();
     scan_security_headers(&target_url).await;
@@ -226,9 +224,9 @@ async fn main() {
     println!("[+] Detected {} forms on {}.", &forms.len(), &target_url);
 
     println!();
-    sqli_scan(&forms, &target_url).await;
+    sqli_scan(&forms, &target_url, &client).await;
     println!();
-    xss_scan(&forms, &target_url).await;
+    xss_scan(&forms, &target_url, &client).await;
 
 
 }
