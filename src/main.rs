@@ -100,30 +100,51 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str)  -> Result<(), Box<dyn s
 async fn xss_scan(forms: &Vec<FormDetails>, url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let js_script = String::from("<script>alert('hi')</script>");
 
+    let xss_test_payloads = vec![
+        "<script>alert('XSS')</script>",
+        "%3Cscript%3Ealert('XSS')%3C/script%3E",
+        "<img src='x' onerror=\"alert('XSS')\">",
+        "<script>/*<!--*/alert('XSS')//-->*/</script>",
+        "<svg/onload=alert('XSS')>",
+        "&#60;script&#62;alert('XSS')&#60;/script&#62;",
+        "&#x3C;script&#x3E;alert('XSS')&#x3C;/script&#x3E;",
+        "<style>@import 'javascript:alert(\"XSS\")';</style>"
+    ];
+
     for form in forms {
-        let new_url = Url::parse(url).unwrap();
-        let action_url = new_url.join(&form.action).unwrap();
-        let client = Client::new();
-        let mut data = HashMap::new();
-        
-        for input in &form.inputs {
-            let mut input_value = String::new(); 
-            if input.input_type == "text" || input.input_type == "search" {
-                input_value = js_script.clone();
+        for payload in &xss_test_payloads {
+
+            let new_url = Url::parse(url).unwrap();
+            let action_url = new_url.join(&form.action).unwrap();
+            let client = Client::new();
+            let mut data = HashMap::new();
+
+            for input in &form.inputs {
+                let mut input_value = String::new(); 
+
+                if input.input_type == "submit" || (input.input_type == "radio" && input.value != "no value"){
+                    continue;
+                }
+                input_value = payload.to_string();
+
+                if input.name != "no name" && input.value != "no value" {
+                    data.insert(input.name.to_string(), input_value);
+                }
             }
-            else {
-                input_value = input.value.clone();
+            let response = match form.method.to_lowercase().as_str() {
+                "post" => client.post(action_url).form(&data).send().await?,
+                "get" => client.get(action_url).query(&data).send().await?,
+                _ => panic!("Unsupported form method.")
+            };
+            let response_content = response.text().await?.to_lowercase();
+            if response_content.contains(&payload.to_lowercase()) {
+                println!("\n[+] XSS Detected on {}", url);
+                println!("[*] Form details:");
+                println!("{:?}", form);
+                break;
             }
-            if input.name != "no name" && input.value != "no value" {
-                data.insert(input.name.to_string(), input_value);
-            }
+            
         }
-        let response = match form.method.to_lowercase().as_str() {
-            "post" => client.post(action_url).form(&data).send().await?,
-            "get" => client.get(action_url).query(&data).send().await?,
-            _ => panic!("Unsupported form method.")
-        };
-        println!("{:?}", response.text().await?.to_lowercase());
 
 
     }
@@ -150,7 +171,6 @@ async fn main() {
     println!("{:?}", response);
 
     let forms = find_forms(&response);
-    println!("{:?}", forms);
 
     // sqli_scan(&forms, &target_url).await;
     xss_scan(&forms, &target_url).await;
@@ -182,8 +202,6 @@ fn find_forms(html_content: &str) -> Vec<FormDetails> {
 
         let action = form.value().attr("action").unwrap_or("no action").to_string();
         let method = form.value().attr("method").unwrap_or("no method").to_string();
-        println!("Found form action: {}", action);
-        println!("Found form method: {}", method);
         form_info.action = action;
         form_info.method = method;
         
