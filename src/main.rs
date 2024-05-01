@@ -16,13 +16,17 @@ use std::sync::Arc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
+
+    /// The target URL to scan for vulnerabilities (use a full url, including http(s)://)
+    #[arg(short, long, value_name = "URL")]
     target: String,
 
-    #[arg(long, action)]
+    /// Scan as many pages that can be found associated with the given URL
+    #[arg(long)]
     crawl: bool,
 
-    #[arg(short, long, action)]
+    /// Show all of the pages found by crawler before scanning
+    #[arg(short, long)]
     verbose: bool,
 }
 
