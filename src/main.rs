@@ -18,6 +18,7 @@ use serde_json;
 struct Args {
     #[arg(short, long)]
     target: String,
+
 }
 
 #[derive(Debug)]
@@ -54,23 +55,29 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client)  -> Res
 
     // may need to add in more test payloads
     // also maybe call this variable test_payloads
-    let chars = vec!['"', '\''];
+    let payloads = vec![
+        "\"",
+        "'",
+        "' OR '1'='1",
+        "' OR 1=1--",
+        "' OR 'x'='x",
+    ];
 
     let mut is_vulnerable = false;
 
     for form in forms {
-        for c in &chars {
+        for payload in &payloads {
             let mut data = HashMap::new();
             for input_tag in &form.inputs {
 
                 // any input that is hidden or has value, use in form body with special char
                 if input_tag.input_type == "hidden" || input_tag.value != "no value" {
-                    let new_value = format!("{}{}", input_tag.value, c);
+                    let new_value = format!("{}{}", input_tag.value, payload);
                     data.insert(input_tag.name.to_string(), new_value);
 
                 // any other input, use random data and special char
                 } else if input_tag.input_type != "submit" {
-                    let new_value = format!("test{}", c);
+                    let new_value = format!("test{}", payload);
                     data.insert(input_tag.name.to_string(), new_value);
                 }
             }
@@ -86,7 +93,7 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client)  -> Res
             };
             if is_sqli_vulnerable(response.text().await?.to_lowercase()) {
                 is_vulnerable = true;
-                println!("[+] SQL Injection vulnerability detected, link: {}", url);
+                println!("[+] SQL Injection vulnerability detected on {} using {} payload", url, payload);
                 println!("[+] Form: {:?}", form);
             }
         }
@@ -145,7 +152,7 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client) -> Resul
             // println!("{:?}", response_content);
             if response_content.contains(&payload.to_lowercase()) {
                 is_vulnerable = true;
-                println!("\n[+] XSS Detected on {}, using payload: {}", url, payload);
+                println!("[+] XSS Detected on {}, using payload: {}", url, payload);
                 println!("[*] Form details:");
                 println!("{:?}", form);
                 println!();
