@@ -1,7 +1,7 @@
 
 use clap::Parser;
 use reqwest::header::{HeaderValue, HeaderMap};
-use reqwest::{Client, Error};
+use reqwest::Client;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 use url::Url;
@@ -197,7 +197,7 @@ fn convert(headers: &HeaderMap<HeaderValue>) -> serde_json::Value {
 }
 
 
-async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn scan_security_headers(url: &str) -> Result<(), reqwest::Error> {
     let headers_to_check = vec![
         "Content-Security-Policy",
         "X-Frame-Options",
@@ -292,9 +292,19 @@ async fn main() {
         match scan_security_headers(&target_url).await {
             Ok(()) => {},
             Err(e) => {
-                eprintln!("Scan failed: {:?}", e);
+                if e.is_builder() {
+                    println!("URL parsing error: {}", e);
+                } else if e.is_connect() {
+                    println!("Connection error: {}", e);
+                } else if e.is_request() {
+                    println!("Request error: {}", e);
+                } else if e.is_timeout() {
+                    println!("Timeout error: {}", e);
+                } else {
+                    println!("An error occurred: {}", e);
+                }
                 return;
-            },
+            }
         }
         println!();
 
