@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use core::panic;
 use std::future::IntoFuture;
 
@@ -10,6 +8,10 @@ use scraper::{Html, Selector};
 use std::collections::HashMap;
 use url::Url;
 use serde_json;
+use spider::tokio;
+use spider::website::Website;
+use tokio::sync::Semaphore;
+use std::sync::Arc;
 
 
 // may need to reference the clap docs for this
@@ -19,6 +21,8 @@ struct Args {
     #[arg(short, long)]
     target: String,
 
+    #[arg(long, action)]
+    crawl: bool,
 }
 
 #[derive(Debug)]
@@ -107,7 +111,6 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client)  -> Res
 
 async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client) -> Result<(), Box<dyn std::error::Error>> {
 
-    let js_script = String::from("<script>alert('hi')</script>");
     let mut is_vulnerable = false;
 
     let xss_test_payloads = vec![
@@ -129,12 +132,11 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client) -> Resul
             let mut data = HashMap::new();
 
             for input in &form.inputs {
-                let mut input_value = String::new(); 
 
                 if input.input_type == "submit" || (input.input_type == "radio" && input.value != "no value"){
                     continue;
                 }
-                input_value = payload.to_string();
+                let input_value = payload.to_string();
 
                 if input.name != "no name" && input.value != "no value" {
                     data.insert(input.name.to_string(), input_value);
@@ -203,38 +205,75 @@ async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Erro
 }
 
 
+async fn start_scan(target_url: &str, client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+
+    let request_result = make_request(&target_url).await;
+    let response = match request_result {
+        Ok(response) => response,
+        Err(error) => panic!("Problem with this request: {:?}", error),
+    };
+
+    let forms = find_forms(&response);
+
+    println!();
+    let _ = scan_security_headers(target_url).await;
+
+    println!();
+    println!("[+] Detected {} forms on {}.", forms.len(), target_url);
+
+    println!();
+    let _ = sqli_scan(&forms, target_url, client).await;
+    println!();
+    let _ = xss_scan(&forms, target_url, client).await;
+
+    Ok(())
+}
+
+
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
     let target_url = args.target;
 
-    // This prints out the url entered
-    println!("URL to target: {:?}", target_url);
-
-    let request_result = make_request(&target_url).await;
-
-    let response = match request_result {
-        Ok(response) => response,
-        Err(error) => panic!("Problem with this request: {:?}", error),
-    };
-
-    // println!("{:?}", response);
-
     let client = Client::new();
 
-    println!();
-    scan_security_headers(&target_url).await;
+    if args.crawl {
+        let mut website: Website = Website::new(&target_url);
+        website.crawl().await;
+        let links = website.get_links();
 
-    println!();
-    let forms = find_forms(&response);
-    println!("[+] Detected {} forms on {}.", &forms.len(), &target_url);
+        // create a new semaphore with a max thread count of 5
+        let max_concurrency = 5;
+        let semaphore = Arc::new(Semaphore::new(max_concurrency));
 
-    println!();
-    sqli_scan(&forms, &target_url, &client).await;
-    println!();
-    xss_scan(&forms, &target_url, &client).await;
+        let mut handles = Vec::new();
 
+        for link in links.clone() {
+            println!("URL to target: {:?}", link.as_ref());
+            let client_clone = client.clone();
+
+            // get a permit from the semaphore
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let handle = tokio::spawn(async move {
+                let _ = start_scan(link.as_ref(), &client_clone).await;
+
+                // give permit back to semaphore for next task
+                drop(permit);
+            });
+            handles.push(handle);
+        }
+
+        // wait for all tasks to finish after spawned
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+    } else {
+
+        println!("URL to target: {:?}", target_url);
+        let _ = start_scan(&target_url, &client).await;
+    }
 
 }
 
