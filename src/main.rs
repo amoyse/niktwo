@@ -1,4 +1,3 @@
-use core::panic;
 
 use clap::Parser;
 use reqwest::header::{HeaderValue, HeaderMap};
@@ -91,8 +90,9 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_craw
                 if is_crawling.to_owned() {
                     break;
                 } else {
-                    println!("Unsupported form method: {}", form.method);
-                    continue;
+                    println!("Unsupported form method.");
+                    println!();
+                    break;
                 }
             }
             
@@ -152,12 +152,24 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawl
                     data.insert(input.name.to_string(), input_value);
                 }
             }
+            if !["post", "get"].contains(&form.method.to_lowercase().as_str()) {
+                if is_crawling.to_owned() {
+                    break;
+                } else {
+                    println!("Unsupported form method.");
+                    println!();
+                    break;
+                }
+            }
+            
+            // .as_str() is needed to convert form.method from String to &str for matching with
+            // "post" and "get"
             let response = match form.method.to_lowercase().as_str() {
                 "post" => client.post(action_url).form(&data).send().await?,
                 "get" => client.get(action_url).query(&data).send().await?,
-                "no method" => client.get(action_url).query(&data).send().await?,
-                _ => panic!("Unsupported form method.")
+                _ => unreachable!(),
             };
+
             let response_content = response.text().await?.to_lowercase();
             // println!("{}", payload);
             // println!("Response:");
@@ -217,7 +229,24 @@ async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Erro
 
 async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Result<(), Box<dyn std::error::Error>> {
 
-    let response = make_request(&target_url).await?;
+
+    let response = match make_request(&target_url).await {
+        Ok(response) => response,
+        Err(e) => {
+            if e.is_builder() {
+                println!("URL parsing error: {}", e);
+            } else if e.is_connect() {
+                println!("Connection error: {}", e);
+            } else if e.is_request() {
+                println!("Request error: {}", e);
+            } else if e.is_timeout() {
+                println!("Timeout error: {}", e);
+            } else {
+                println!("An error occurred: {}", e);
+            }
+            return Err(Box::new(e));
+        }
+    };
 
     let forms = find_forms(&response);
 
