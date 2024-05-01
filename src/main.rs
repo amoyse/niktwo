@@ -1,5 +1,4 @@
 use core::panic;
-use std::future::IntoFuture;
 
 use clap::Parser;
 use reqwest::header::{HeaderValue, HeaderMap};
@@ -85,20 +84,29 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_craw
                     data.insert(input_tag.name.to_string(), new_value);
                 }
             }
-            let new_url = Url::parse(url).unwrap();
-            let action_url = new_url.join(&form.action).unwrap();
+            let new_url = Url::parse(url)?;
+            let action_url = new_url.join(&form.action)?;
+
+            if !["post", "get"].contains(&form.method.to_lowercase().as_str()) {
+                if is_crawling.to_owned() {
+                    break;
+                } else {
+                    println!("Unsupported form method: {}", form.method);
+                    continue;
+                }
+            }
             
             // .as_str() is needed to convert form.method from String to &str for matching with
             // "post" and "get"
             let response = match form.method.to_lowercase().as_str() {
                 "post" => client.post(action_url).form(&data).send().await?,
                 "get" => client.get(action_url).query(&data).send().await?,
-                _ => panic!("Unsupported form method.")
+                _ => unreachable!(),
             };
             if is_sqli_vulnerable(response.text().await?.to_lowercase()) {
                 is_vulnerable = true;
                 println!("[+] SQL Injection vulnerability detected on {} using {} payload", url, payload);
-                println!("[+] Form: {:?}", form);
+                println!("[*] Form: {:?}", form);
                 println!();
                 break;
             }
@@ -209,11 +217,7 @@ async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Erro
 
 async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Result<(), Box<dyn std::error::Error>> {
 
-    let request_result = make_request(&target_url).await;
-    let response = match request_result {
-        Ok(response) => response,
-        Err(error) => panic!("Problem with this request: {:?}", error),
-    };
+    let response = make_request(&target_url).await?;
 
     let forms = find_forms(&response);
 
@@ -234,7 +238,6 @@ async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Re
         let _ = xss_scan(&forms, target_url, client, is_crawling).await;
     }
 
-
     Ok(())
 }
 
@@ -254,7 +257,11 @@ async fn main() {
         website.crawl().await;
         let links = website.get_links();
 
-        let _ = scan_security_headers(&target_url).await;
+        // TODO: fix this!
+        match scan_security_headers(&target_url).await {
+            Ok(()) => {},
+            Err(_) => {},
+        }
         println!();
 
         // create a new semaphore with a max thread count of 5
@@ -280,14 +287,18 @@ async fn main() {
 
         // wait for all tasks to finish after spawned
         for handle in handles {
-            handle.await.unwrap();
+            match handle.await {
+                Ok(_) => {},
+                Err(e) => eprintln!("One thread had an error: {}", e),
+            }
         }
 
     } else {
-
         println!("URL to target: {:?}", target_url);
         let _ = start_scan(&target_url, &client, &is_crawling).await;
     }
+    println!();
+    println!("Scan finished");
 
 }
 
