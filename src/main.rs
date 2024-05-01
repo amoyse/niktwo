@@ -21,6 +21,9 @@ struct Args {
 
     #[arg(long, action)]
     crawl: bool,
+
+    #[arg(short, long, action)]
+    verbose: bool,
 }
 
 #[derive(Debug)]
@@ -300,6 +303,14 @@ async fn main() {
         let semaphore = Arc::new(Semaphore::new(max_concurrency));
 
         let mut handles = Vec::new();
+
+        if args.verbose {
+            println!("[+] Pages to scan:");
+            for link in links {
+                println!("- {:?}", link.as_ref());
+            }
+            println!();
+        }
 
         for link in links.clone() {
             // println!("URL to target: {:?}", link.as_ref());
