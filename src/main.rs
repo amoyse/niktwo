@@ -55,7 +55,7 @@ fn is_sqli_vulnerable(response: String) -> bool {
     false
 }
 
-async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client)  -> Result<(), Box<dyn std::error::Error>> {
+async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawling: &bool)  -> Result<(), Box<dyn std::error::Error>> {
 
     // may need to add in more test payloads
     // also maybe call this variable test_payloads
@@ -99,17 +99,19 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client)  -> Res
                 is_vulnerable = true;
                 println!("[+] SQL Injection vulnerability detected on {} using {} payload", url, payload);
                 println!("[+] Form: {:?}", form);
+                println!();
+                break;
             }
         }
     }
-    if !is_vulnerable {
+    if !is_vulnerable && !is_crawling {
         println!("[+] No SQL injection vulnerabilities detected.");
     }
 
     Ok(())
 }
 
-async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawling: &bool) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut is_vulnerable = false;
 
@@ -162,7 +164,7 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client) -> Resul
             }
         }
     }
-    if !is_vulnerable {
+    if !is_vulnerable && !is_crawling {
         println!("[+] No XSS vulnerabilities detected.");
     }
     Ok(())
@@ -205,7 +207,7 @@ async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Erro
 }
 
 
-async fn start_scan(target_url: &str, client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Result<(), Box<dyn std::error::Error>> {
 
     let request_result = make_request(&target_url).await;
     let response = match request_result {
@@ -215,16 +217,23 @@ async fn start_scan(target_url: &str, client: &Client) -> Result<(), Box<dyn std
 
     let forms = find_forms(&response);
 
-    println!();
-    let _ = scan_security_headers(target_url).await;
+    if is_crawling.to_owned() {
+        let _ = sqli_scan(&forms, target_url, client, is_crawling).await;
+        let _ = xss_scan(&forms, target_url, client, is_crawling).await;
 
-    println!();
-    println!("[+] Detected {} forms on {}.", forms.len(), target_url);
+    } else {
+        println!();
+        let _ = scan_security_headers(target_url).await;
 
-    println!();
-    let _ = sqli_scan(&forms, target_url, client).await;
-    println!();
-    let _ = xss_scan(&forms, target_url, client).await;
+        println!();
+        println!("[+] Detected {} forms on {}.", forms.len(), target_url);
+
+        println!();
+        let _ = sqli_scan(&forms, target_url, client, is_crawling).await;
+        println!();
+        let _ = xss_scan(&forms, target_url, client, is_crawling).await;
+    }
+
 
     Ok(())
 }
@@ -235,13 +244,18 @@ async fn start_scan(target_url: &str, client: &Client) -> Result<(), Box<dyn std
 async fn main() {
     let args = Args::parse();
     let target_url = args.target;
+    let is_crawling = args.crawl;
 
     let client = Client::new();
+    println!();
 
-    if args.crawl {
+    if is_crawling {
         let mut website: Website = Website::new(&target_url);
         website.crawl().await;
         let links = website.get_links();
+
+        let _ = scan_security_headers(&target_url).await;
+        println!();
 
         // create a new semaphore with a max thread count of 5
         let max_concurrency = 5;
@@ -250,13 +264,13 @@ async fn main() {
         let mut handles = Vec::new();
 
         for link in links.clone() {
-            println!("URL to target: {:?}", link.as_ref());
+            // println!("URL to target: {:?}", link.as_ref());
             let client_clone = client.clone();
 
             // get a permit from the semaphore
             let permit = semaphore.clone().acquire_owned().await.unwrap();
             let handle = tokio::spawn(async move {
-                let _ = start_scan(link.as_ref(), &client_clone).await;
+                let _ = start_scan(link.as_ref(), &client_clone, &is_crawling).await;
 
                 // give permit back to semaphore for next task
                 drop(permit);
@@ -272,7 +286,7 @@ async fn main() {
     } else {
 
         println!("URL to target: {:?}", target_url);
-        let _ = start_scan(&target_url, &client).await;
+        let _ = start_scan(&target_url, &client, &is_crawling).await;
     }
 
 }
