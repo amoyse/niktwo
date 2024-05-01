@@ -53,6 +53,7 @@ fn is_sqli_vulnerable(response: String) -> bool {
     false
 }
 
+
 async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawling: &bool)  -> Result<(), Box<dyn std::error::Error>> {
 
     // may need to add in more test payloads
@@ -171,9 +172,6 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawl
             };
 
             let response_content = response.text().await?.to_lowercase();
-            // println!("{}", payload);
-            // println!("Response:");
-            // println!("{:?}", response_content);
             if response_content.contains(&payload.to_lowercase()) {
                 is_vulnerable = true;
                 println!("[+] XSS Detected on {}, using payload: {}", url, payload);
@@ -190,9 +188,11 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawl
     Ok(())
 }
 
+
 fn convert(headers: &HeaderMap<HeaderValue>) -> serde_json::Value {
     format!("{:?}", headers).into()
 }
+
 
 async fn scan_security_headers(url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let headers_to_check = vec![
@@ -286,10 +286,12 @@ async fn main() {
         website.crawl().await;
         let links = website.get_links();
 
-        // TODO: fix this!
         match scan_security_headers(&target_url).await {
             Ok(()) => {},
-            Err(_) => {},
+            Err(e) => {
+                eprintln!("Scan failed: {:?}", e);
+                return;
+            },
         }
         println!();
 
@@ -304,7 +306,13 @@ async fn main() {
             let client_clone = client.clone();
 
             // get a permit from the semaphore
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(permit) => permit,
+                Err(e) => {
+                    eprintln!("Failed to acquire a semaphore permit: {:?}", e);
+                    return;
+                }
+            };
             let handle = tokio::spawn(async move {
                 let _ = start_scan(link.as_ref(), &client_clone, &is_crawling).await;
 
@@ -331,12 +339,14 @@ async fn main() {
 
 }
 
+
 async fn make_request(url: &str) -> Result<String, reqwest::Error> {
     // make sure to use an exact url, not relative!
     let response = reqwest::get(url).await?;
     let body = response.text().await?;
     Ok(body)
 }
+
 
 fn find_forms(html_content: &str) -> Vec<FormDetails> {
     let document = Html::parse_document(html_content);
