@@ -1,7 +1,7 @@
 
 use clap::Parser;
 use reqwest::header::{HeaderValue, HeaderMap};
-use reqwest::Client;
+use reqwest::{Client, Error as ReqwestError, Response};
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 use url::Url;
@@ -207,15 +207,16 @@ fn convert(headers: &HeaderMap<HeaderValue>) -> serde_json::Value {
 
 
 // scan response headers to see if certain security headers are missing
-async fn scan_security_headers(url: &str) -> Result<(), reqwest::Error> {
+async fn scan_security_headers(url: &str, client: &Client) -> Result<(), reqwest::Error> {
     let headers_to_check = vec![
         "Content-Security-Policy",
         "X-Frame-Options",
         "Strict-Transport-Security",
         "X-Content-Type-Options"
     ];
-    let response = reqwest::get(url).await?;
+    let response = make_request(url, client).await?;
     let headers = response.headers();
+
     let headers_json = convert(headers);
 
     // retrieve the value for the server header, if it exists
@@ -244,25 +245,10 @@ async fn scan_security_headers(url: &str) -> Result<(), reqwest::Error> {
 async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Result<(), Box<dyn std::error::Error>> {
 
 
-    let response = match make_request(&target_url).await {
-        Ok(response) => response,
-        Err(e) => {
-            if e.is_builder() {
-                println!("URL parsing error: {}", e);
-            } else if e.is_connect() {
-                println!("Connection error: {}", e);
-            } else if e.is_request() {
-                println!("Request error: {}", e);
-            } else if e.is_timeout() {
-                println!("Timeout error: {}", e);
-            } else {
-                println!("An error occurred: {}", e);
-            }
-            return Err(Box::new(e));
-        }
-    };
+    let response = make_request(target_url, client).await?;
+    let body = response.text().await?;
 
-    let forms = match find_forms(&response) {
+    let forms = match find_forms(&body) {
         Ok(forms) => forms,
         Err(e) => {
 
@@ -286,7 +272,8 @@ async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Re
 
     } else {
         println!();
-        let _ = scan_security_headers(target_url).await;
+
+        let _ = scan_security_headers(target_url, client).await;
 
         println!();
         println!("[+] Detected {} forms on {}.", forms.len(), target_url);
@@ -316,23 +303,8 @@ async fn main() {
         website.crawl().await;
         let links = website.get_links();
 
-        match scan_security_headers(&target_url).await {
-            Ok(()) => {},
-            Err(e) => {
-                if e.is_builder() {
-                    println!("URL parsing error: {}", e);
-                } else if e.is_connect() {
-                    println!("Connection error: {}", e);
-                } else if e.is_request() {
-                    println!("Request error: {}", e);
-                } else if e.is_timeout() {
-                    println!("Timeout error: {}", e);
-                } else {
-                    println!("An error occurred: {}", e);
-                }
-                return;
-            }
-        }
+        let _ = scan_security_headers(&target_url, &client).await;
+
         println!();
 
         // create a new semaphore with a max thread count of 5
@@ -387,11 +359,40 @@ async fn main() {
 }
 
 
-// make a request to the server and return reponse body
-async fn make_request(url: &str) -> Result<String, reqwest::Error> {
-    let response = reqwest::get(url).await?;
-    let body = response.text().await?;
-    Ok(body)
+// make a request to the server and return reponse or reqwest error
+async fn make_request(url: &str, client: &Client) -> Result<Response, ReqwestError> {
+    let response = client.get(url).send().await;
+
+    // if response is an error, log the error and return error
+    match response {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                Ok(resp)
+            } else {
+                Err(ReqwestError::from(resp.error_for_status().unwrap_err()))
+            }
+        },
+        Err(e) => {
+            log_request_error(&e);
+            Err(e)
+        }
+    }
+}
+
+
+// display error if something goes wrong with reqwest
+fn log_request_error(error: &ReqwestError) {
+    if error.is_builder() {
+        eprintln!("URL parsing error: {}", error);
+    } else if error.is_connect() {
+        eprintln!("Connection error: {}", error);
+    } else if error.is_request() {
+        eprintln!("Request error: {}", error);
+    } else if error.is_timeout() {
+        eprintln!("Timeout error: {}", error);
+    } else {
+        eprintln!("An error occurred: {}", error);
+    }
 }
 
 
