@@ -30,6 +30,7 @@ struct Args {
     verbose: bool,
 }
 
+// struct for storing information about an input tag associated with a form
 #[derive(Debug)]
 struct InputDetails {
     input_type: String,
@@ -37,6 +38,7 @@ struct InputDetails {
     value: String
 }
 
+// struct for storing information about a form on a web page
 #[derive(Debug)]
 struct FormDetails {
     action: String,
@@ -44,6 +46,8 @@ struct FormDetails {
     inputs: Vec<InputDetails>
 }
 
+
+// check for sql errors in response body
 fn is_sqli_vulnerable(response: String) -> bool {
     let errors = vec![
         "you have an error in your sql syntax;", 
@@ -61,10 +65,9 @@ fn is_sqli_vulnerable(response: String) -> bool {
 }
 
 
+// perform the full sql injection scan on all the forms for a given url
 async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawling: &bool)  -> Result<(), Box<dyn std::error::Error>> {
 
-    // may need to add in more test payloads
-    // also maybe call this variable test_payloads
     let payloads = vec![
         "\"",
         "'",
@@ -127,9 +130,8 @@ async fn sqli_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_craw
     Ok(())
 }
 
+// perform a scan for xss vulnerabilities on all the forms on a given url
 async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawling: &bool) -> Result<(), Box<dyn std::error::Error>> {
-
-    let mut is_vulnerable = false;
 
     let xss_test_payloads = vec![
         "<script>alert('XSS')</script>",
@@ -141,6 +143,8 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawl
         "&#x3C;script&#x3E;alert('XSS')&#x3C;/script&#x3E;",
         r#"<style>@import 'javascript:alert("XSS")';</style>"#
     ];
+
+    let mut is_vulnerable = false;
 
     for form in forms {
         for payload in &xss_test_payloads {
@@ -196,11 +200,13 @@ async fn xss_scan(forms: &Vec<FormDetails>, url: &str, client: &Client, is_crawl
 }
 
 
+// convert data of type HeaderMap to serde_json::Value for ease of use
 fn convert(headers: &HeaderMap<HeaderValue>) -> serde_json::Value {
     format!("{:?}", headers).into()
 }
 
 
+// scan response headers to see if certain security headers are missing
 async fn scan_security_headers(url: &str) -> Result<(), reqwest::Error> {
     let headers_to_check = vec![
         "Content-Security-Policy",
@@ -234,6 +240,7 @@ async fn scan_security_headers(url: &str) -> Result<(), reqwest::Error> {
 }
 
 
+// start the different types of scans for the given url, passing the forms on the page
 async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Result<(), Box<dyn std::error::Error>> {
 
 
@@ -257,6 +264,7 @@ async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Re
 
     let forms = find_forms(&response);
 
+    // if scanning crawled pages, don't perform a security header scan on every page
     if is_crawling.to_owned() {
         let _ = sqli_scan(&forms, target_url, client, is_crawling).await;
         let _ = xss_scan(&forms, target_url, client, is_crawling).await;
@@ -327,7 +335,6 @@ async fn main() {
         }
 
         for link in links.clone() {
-            // println!("URL to target: {:?}", link.as_ref());
             let client_clone = client.clone();
 
             // get a permit from the semaphore
@@ -365,14 +372,15 @@ async fn main() {
 }
 
 
+// make a request to the server and return reponse body
 async fn make_request(url: &str) -> Result<String, reqwest::Error> {
-    // make sure to use an exact url, not relative!
     let response = reqwest::get(url).await?;
     let body = response.text().await?;
     Ok(body)
 }
 
 
+// parse html content to find forms on a page, and return vector of FormDetails
 fn find_forms(html_content: &str) -> Vec<FormDetails> {
     let document = Html::parse_document(html_content);
     let form_selector = Selector::parse("form").unwrap();
@@ -398,7 +406,6 @@ fn find_forms(html_content: &str) -> Vec<FormDetails> {
             let name = input.value().attr("name").unwrap_or("no name").to_string();
             let input_type = input.value().attr("type").unwrap_or("no type").to_string();
             let value = input.value().attr("value").unwrap_or("no value").to_string();
-            // println!("Found input: type={} name={} value={}", input_type, name, value);
 
             // add the found input details to the form_info.inputs vector
             form_info.inputs.push(InputDetails {
