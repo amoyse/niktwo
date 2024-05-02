@@ -262,7 +262,22 @@ async fn start_scan(target_url: &str, client: &Client, is_crawling: &bool) -> Re
         }
     };
 
-    let forms = find_forms(&response);
+    let forms = match find_forms(&response) {
+        Ok(forms) => forms,
+        Err(e) => {
+
+            // if scanning every page, don't show an error each time there is an issue with finding
+            // forms on a page, just skip it
+            if is_crawling.to_owned() {
+                return Ok(());
+
+            // if not scanning every page, show an error for that url
+            } else {
+                eprintln!("There was an issue with parsing forms: {}",e);
+                return Ok(());
+            }
+        },
+    };
 
     // if scanning crawled pages, don't perform a security header scan on every page
     if is_crawling.to_owned() {
@@ -381,10 +396,12 @@ async fn make_request(url: &str) -> Result<String, reqwest::Error> {
 
 
 // parse html content to find forms on a page, and return vector of FormDetails
-fn find_forms(html_content: &str) -> Vec<FormDetails> {
+fn find_forms(html_content: &str) -> Result<Vec<FormDetails>, String> {
     let document = Html::parse_document(html_content);
-    let form_selector = Selector::parse("form").unwrap();
-    let input_selector = Selector::parse("input").unwrap();
+
+    // graceful error handling for issues with form and input tag parsing
+    let form_selector = Selector::parse("form").map_err(|e| format!("Failed to parse form selector: {:?}", e))?;
+    let input_selector = Selector::parse("input").map_err(|e| format!("Failed to parse input selector: {:?}", e))?;
 
     let mut all_form_details: Vec<FormDetails> = Vec::new();
 
@@ -396,6 +413,8 @@ fn find_forms(html_content: &str) -> Vec<FormDetails> {
             inputs: Vec::new(),
         };
 
+        // assign value of "no [value]" if error, to make error handling easier down the line
+        // as I can just check for specific strings
         let action = form.value().attr("action").unwrap_or("no action").to_string();
         let method = form.value().attr("method").unwrap_or("no method").to_string();
         form_info.action = action;
@@ -416,5 +435,5 @@ fn find_forms(html_content: &str) -> Vec<FormDetails> {
         }
         all_form_details.push(form_info);
     }
-    all_form_details
+    Ok(all_form_details)
 }
