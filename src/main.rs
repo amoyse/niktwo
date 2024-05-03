@@ -1,3 +1,4 @@
+// Nitwo, a web vulnerability scanner.
 
 use clap::Parser;
 use reqwest::header::{HeaderValue, HeaderMap};
@@ -12,7 +13,7 @@ use tokio::sync::Semaphore;
 use std::sync::Arc;
 
 
-// may need to reference the clap docs for this
+// from rust docs (Rust, 2024)
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -299,6 +300,8 @@ async fn main() {
     println!();
 
     if is_crawling {
+ 
+        // use of spider to crall all pages on a website
         let mut website: Website = Website::new(&target_url);
         website.crawl().await;
         let links = website.get_links();
